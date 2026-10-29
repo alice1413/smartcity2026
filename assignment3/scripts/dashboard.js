@@ -175,8 +175,43 @@
     document.getElementById('insight-price').textContent=`선택한 ${meta.label} 기준으로 주거비와 평균 이동시간이 모두 24개 구 중앙값 이하인 곳은 ${lowLow.map(d=>d.name).join(', ')||'없습니다'}. 이는 상대 비교상 부담이 낮아 보이는 후보를 찾은 것이며 실제 노동자의 거주 선택을 뜻하지 않습니다.`;
   }
 
+  function updateHousingSearchForm(){
+    const type=document.getElementById('housingType').value,isMonthly=type==='monthly';
+    document.getElementById('singleBudgetField').hidden=isMonthly;
+    document.getElementById('monthlyBudgetFields').hidden=!isMonthly;
+    document.getElementById('singleBudgetTitle').textContent=type==='sale'?'매매 예산 상한':'전세 보증금 상한';
+  }
+  function renderHousingSearch(){
+    const type=document.getElementById('housingType').value,area=Number(document.getElementById('areaInput').value),result=document.getElementById('housingSearchResults');
+    if(!Number.isFinite(area)||area<10||area>250){result.innerHTML='<div class="finder-message">희망 면적을 10–250㎡ 사이로 입력해 주세요.</div>';return}
+    const monthly=type==='monthly',budget=Number(document.getElementById('singleBudget').value),depositBudget=Number(document.getElementById('depositBudget').value),rentBudget=Number(document.getElementById('rentBudget').value);
+    if(monthly?(!Number.isFinite(depositBudget)||!Number.isFinite(rentBudget)||depositBudget<=0||rentBudget<=0):(!Number.isFinite(budget)||budget<=0)){result.innerHTML='<div class="finder-message">예산을 모두 0보다 큰 값으로 입력해 주세요.</div>';return}
+    const valueKey=type==='sale'?'saleMedian':'jeonseMedian',rows=[];
+    candidates.forEach(d=>{
+      const m=d.metrics,minutes=Number(m.commuteMinutes);
+      if(!Number.isFinite(minutes))return;
+      if(monthly){
+        const estimatedDeposit=Number(m.monthlyDepositMedian)*area/10000,estimatedRent=Number(m.monthlyRentMedian)*area;
+        if(Number.isFinite(estimatedDeposit)&&Number.isFinite(estimatedRent)&&estimatedDeposit<=depositBudget&&estimatedRent<=rentBudget)rows.push({name:d.name,minutes,estimatedDeposit,estimatedRent});
+      }else{
+        const estimatedCost=Number(m[valueKey])*area/10000;
+        if(Number.isFinite(estimatedCost)&&estimatedCost<=budget)rows.push({name:d.name,minutes,estimatedCost});
+      }
+    });
+    rows.sort((a,b)=>a.minutes-b.minutes);
+    const typeLabel=type==='sale'?'매매':type==='jeonse'?'전세':'월세';
+    const criteria=monthly?`보증금 ${fmt(depositBudget,1)}억원 이하 · 월 임대료 ${fmt(rentBudget,0)}만원 이하`:`${typeLabel} 예산 ${fmt(budget,1)}억원 이하`;
+    const summary=`${area}㎡ 아파트 · ${criteria} 기준으로 ${rows.length}개 구가 조건에 들어옵니다. 평균 이동시간이 짧은 순으로 표시합니다.`;
+    if(!rows.length){result.innerHTML=`<div class="finder-message">${summary} 예산이나 면적을 조정해 다시 찾아보세요.</div>`;return}
+    const body=rows.map(r=>`<tr><td>${r.name}</td><td>${monthly?`보증금 약 ${fmt(r.estimatedDeposit,1)}억원 · 월세 약 ${fmt(r.estimatedRent,1)}만원`:`약 ${fmt(r.estimatedCost,1)}억원`}</td><td>${fmt(r.minutes,1)}분</td><td><button class="map-button" type="button" data-district="${r.name}">지도 보기</button></td></tr>`).join('');
+    result.innerHTML=`<div class="finder-message">${summary}</div><div class="finder-table-wrap"><table class="finder-table"><thead><tr><th>자치구</th><th>추정 주거비</th><th>강남 도착 평균 이동시간</th><th>지도</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    result.querySelectorAll('[data-district]').forEach(button=>button.addEventListener('click',()=>select(button.dataset.district)));
+  }
   function refreshHousing(){renderSummary();renderScatter();renderRanking();renderInsights()}
   document.getElementById('housingMetric').addEventListener('change',refreshHousing);
+  document.getElementById('housingType').addEventListener('change',updateHousingSearchForm);
+  document.getElementById('housingSearchButton').addEventListener('click',renderHousingSearch);
+  updateHousingSearchForm();
   renderSummary();drawMap();renderScatter();renderRanking();renderInsights();
 })();
 

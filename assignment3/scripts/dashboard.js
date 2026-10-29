@@ -61,7 +61,7 @@
     const defs=document.createElementNS(svgNS,'defs'),marker=document.createElementNS(svgNS,'marker');
     marker.setAttribute('id','flow-arrow');marker.setAttribute('markerWidth','7');marker.setAttribute('markerHeight','7');
     marker.setAttribute('refX','6');marker.setAttribute('refY','3.5');marker.setAttribute('orient','auto');marker.setAttribute('markerUnits','userSpaceOnUse');
-    const arrow=document.createElementNS(svgNS,'path');arrow.setAttribute('d','M0,0 L7,3.5 L0,7 Z');arrow.setAttribute('fill','#315d49');marker.append(arrow);defs.append(marker);map.append(defs);
+    const arrow=document.createElementNS(svgNS,'path');arrow.setAttribute('d','M0,0 L7,3.5 L0,7 Z');arrow.setAttribute('fill','#c65b2d');marker.append(arrow);defs.append(marker);map.append(defs);
     const flows=candidates.filter(d=>Number(d.metrics.commuteFlow)>0);
     const max=Math.max(...flows.map(d=>Number(d.metrics.commuteFlow)),1);
     flows.forEach((d,i)=>{
@@ -69,10 +69,12 @@
       const dx=x2-x1,dy=y2-y1,len=Math.max(Math.hypot(dx,dy),1),side=i%2?1:-1;
       const bend=Math.min(38,len*.12)*side;
       const cx=(x1+x2)/2-(dy/len)*bend,cy=(y1+y2)/2+(dx/len)*bend;
-      const amount=Number(d.metrics.commuteFlow),width=.7+4.3*Math.sqrt(amount/max);
+      const amount=Number(d.metrics.commuteFlow),intensity=Math.sqrt(amount/max);
+      const pale=[246,187,152],deep=[168,68,32];
+      const stroke='rgb('+pale.map((v,j)=>Math.round(v+(deep[j]-v)*intensity)).join(',')+')';
       const path=document.createElementNS(svgNS,'path');
       path.setAttribute('d',`M${x1},${y1} Q${cx},${cy} ${x2},${y2}`);
-      path.setAttribute('class','flow-line');path.setAttribute('stroke-width',width.toFixed(2));path.setAttribute('tabindex','0');path.setAttribute('role','img');
+      path.setAttribute('class','flow-line');path.setAttribute('stroke-width','2.2');path.setAttribute('stroke',stroke);path.setAttribute('tabindex','0');path.setAttribute('role','img');
       path.setAttribute('marker-end','url(#flow-arrow)');
       const detail=`${d.name} → 강남구 · 공개값 ${fmt(amount)} · 평균 이동 ${fmt(d.metrics.commuteMinutes,1)}분`;
       path.setAttribute('aria-label',detail);path.addEventListener('pointermove',e=>showTip(e,detail));path.addEventListener('pointerleave',hideTip);

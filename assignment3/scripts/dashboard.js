@@ -8,10 +8,7 @@
     jeonseMedian:{label:'전세 보증금 중위값',unit:'만원/㎡',digits:0,count:'jeonseCount'},
     monthlyRentMedian:{label:'월세 임대료 중위값',unit:'만원/㎡',digits:2,count:'monthlyCount'}
   };
-  const mapMetrics={
-    commuteMinutes:{label:'강남 도착 평균 이동시간',unit:'분',digits:1},
-    ...housingMetrics
-  };
+  const mapMetric={label:'강남 도착 평균 이동시간',unit:'분',digits:1};
   const candidates=districts.filter(d=>d.name!=='강남구');
   const pointByName=Object.fromEntries(districts.map(d=>[d.name,d]));
   const fmt=(n,d=0)=>Number.isFinite(Number(n))?Number(n).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d}):'자료 없음';
@@ -50,10 +47,10 @@
     const value=Number(d.metrics[key]);
     path.setAttribute('d',ds);path.setAttribute('fill',finite(value)?color((value-lo)/(hi-lo||1)):'#e6e8e4');
     path.setAttribute('class','district'+(d.name===selected?' selected':''));path.setAttribute('tabindex','0');path.setAttribute('role','button');
-    path.setAttribute('aria-label',`${d.name}: ${mapMetrics[key].label} ${fmt(value,mapMetrics[key].digits)} ${mapMetrics[key].unit}`);
+    path.setAttribute('aria-label',`${d.name}: ${mapMetric.label} ${fmt(value,mapMetric.digits)} ${mapMetric.unit}`);
     path.addEventListener('click',()=>select(d.name));
     path.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(d.name)}});
-    path.addEventListener('pointermove',e=>showTip(e,`${d.name} · ${mapMetrics[key].label} ${fmt(value,mapMetrics[key].digits)} ${mapMetrics[key].unit} · 매매 ${fmt(d.metrics.saleMedian,0)}만원/㎡ · 평균 이동 ${fmt(d.metrics.commuteMinutes,1)}분`));
+    path.addEventListener('pointermove',e=>showTip(e,`${d.name} · ${mapMetric.label} ${fmt(value,mapMetric.digits)} ${mapMetric.unit} · 매매 ${fmt(d.metrics.saleMedian,0)}만원/㎡ · 평균 이동 ${fmt(d.metrics.commuteMinutes,1)}분`));
     path.addEventListener('pointerleave',hideTip);map.append(path);
   }
   const tooltip=document.getElementById('tooltip');
@@ -88,7 +85,7 @@
 
   function drawMap(){
     map.replaceChildren();
-    const key=document.getElementById('metric').value,meta=mapMetrics[key];
+    const key='commuteMinutes',meta=mapMetric;
     const values=districts.map(d=>Number(d.metrics[key])).filter(Number.isFinite);
     const lo=Math.min(...values),hi=Math.max(...values);
     districts.forEach(d=>addMapShape(d,key,lo,hi));
@@ -177,7 +174,6 @@
   }
 
   function refreshHousing(){renderSummary();renderScatter();renderRanking();renderInsights()}
-  document.getElementById('metric').addEventListener('change',drawMap);
   document.getElementById('housingMetric').addEventListener('change',refreshHousing);
   renderSummary();drawMap();renderScatter();renderRanking();renderInsights();
 })();

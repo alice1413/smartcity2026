@@ -186,7 +186,7 @@ def main():
     parser.add_argument("--boundary-zip", required=True, type=Path)
     parser.add_argument("--comparison-csv", required=True, type=Path)
     parser.add_argument("--sales-gu-csv", required=True, type=Path)
-    parser.add_argument("--province-csv", required=True, type=Path)
+    parser.add_argument("--commute-gu-csv", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -202,10 +202,6 @@ def main():
         metrics_by_name[name] = {
             "code": code,
             "metrics": {
-                "morningFlow": as_float(row["오전_강남도착_이동인구_공개값합"]),
-                "morningShare": as_float(row["오전_서울구내비중_pct"]),
-                "eveningFlow": as_float(row["저녁_강남출발_이동인구_공개값합"]),
-                "eveningShare": as_float(row["저녁_서울구내비중_pct"]),
                 "saleCount": int(float(row["매매_거래건수"])),
                 "saleMedian": as_float(row["매매_중위만원_m2"]),
                 "jeonseCount": int(float(row["전세_거래건수"])),
@@ -215,6 +211,28 @@ def main():
                 "monthlyRentMedian": as_float(row["월세_중위임대료만원_m2"]),
             },
         }
+
+    commute_by_name = {}
+    for row in read_csv(args.commute_gu_csv):
+        name = row["자치구명"]
+        commute_by_name[name] = {
+            "commuteFlow": as_float(row["강남도착_공개값합"]),
+            "commuteMinutes": as_float(row["평균이동시간_분"]),
+            "commuteTimeWeight": as_float(row["시간산출_가중공개값"]),
+            "commuteTimeCoverage": as_float(row["시간산출_공개값포괄률_pct"]),
+            "commuteOriginDongCount": int(float(row["출발_행정동수"] or 0)),
+            "commuteNumericRows": int(float(row["이동값_숫자행수"] or 0)),
+            "commuteSuppressedRows": int(float(row["이동값_비식별행수"] or 0)),
+            "commuteUnavailableDurationRows": int(float(row["이동시간_사용불가행수"] or 0)),
+        }
+    if set(commute_by_name) != set(metrics_by_name):
+        missing_commute = sorted(set(metrics_by_name) - set(commute_by_name))
+        missing_metrics = sorted(set(commute_by_name) - set(metrics_by_name))
+        raise ValueError(
+            f"Commute and housing gu names do not match; no commute={missing_commute}, no housing={missing_metrics}"
+        )
+    for name, values in metrics_by_name.items():
+        values["metrics"].update(commute_by_name[name])
 
     features = read_sgis_seoul_features(args.boundary_zip, metrics_by_name)
     if len(features) != 25:
@@ -229,40 +247,22 @@ def main():
         "maxX": max(point[0] for point in all_points),
         "maxY": max(point[1] for point in all_points),
     }
-    provinces = []
-    for row in read_csv(args.province_csv):
-        provinces.append({
-            "name": row["시도명_코드표기"],
-            "morningFlow": as_float(row["오전_강남도착_이동인구_공개값합"]),
-            "eveningFlow": as_float(row["저녁_강남출발_이동인구_공개값합"]),
-        })
-    morning_total = sum(row["morningFlow"] or 0 for row in provinces)
-    evening_total = sum(row["eveningFlow"] or 0 for row in provinces)
-    for row in provinces:
-        row["morningShareOfKnownValues"] = round(100 * row["morningFlow"] / morning_total, 2) if morning_total else None
-        row["eveningShareOfKnownValues"] = round(100 * row["eveningFlow"] / evening_total, 2) if evening_total else None
-
     payload = {
         "meta": {
             "year": 2025,
             "districtCount": len(features),
             "boundarySource": "국가데이터처 SGIS 행정구역 경계, 2025-06-30 기준",
             "boundaryCrs": "EPSG:5179",
-            "flowMethod": "숫자형 공개값을 월·요일·시간대별로 합산. 개인별 고유 통근자 수 또는 실제 연간 통행량이 아님.",
+            "flowMethod": "2025년 월·요일 집계의 월–금, 오전 07–09시 HW 유형 중 강남구 도착 흐름. 숫자형 공개값 합과 인구가중 평균 이동시간을 자치구별 산출.",
             "housingMethod": "2025 계약일 기준 아파트 거래의 거래 단위 ㎡당 중위값. 매매는 취소 거래 제외.",
             "mobilityCodeNote": "생활이동 코드표(2021)를 자치구명으로 집계해 2025 경계와 구 단위로 결합.",
             "suppressionNote": "이동인구가 '*'로 비식별 처리된 행은 공개값 합계에서 제외되어 총량이 실제보다 작을 수 있음.",
             "purposeNote": "HW/WH는 야간 상주지와 주간 활동지 사이의 이동 유형이며 업무 목적만을 확인한 통근량은 아님.",
+            "commuteMethod": "평일 월별 공개 집계의 오전 07–09시 HW 흐름 중 도착지가 강남구인 행을 출발 자치구별로 묶고, 각 공개 이동값을 가중치로 평균 이동시간을 계산. 강남구 내부 흐름은 후보 비교에서 제외.",
+            "scopeNote": "서울 25개 자치구 단위 비교. 경기·인천은 주거비 분석 범위에서 제외.",
         },
         "bounds": bounds,
         "features": features,
-        "provinces": provinces,
-        "correlation": {
-            "saleVsMorningSharePearson": pearson(
-                [feature["metrics"]["saleMedian"] for feature in features],
-                [feature["metrics"]["morningShare"] for feature in features],
-            )
-        },
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -272,8 +272,9 @@ def main():
     ring_count = sum(len(feature["rings"]) for feature in features)
     vertex_count = sum(len(ring) for feature in features for ring in feature["rings"])
     print(json.dumps({"districts": len(features), "rings": ring_count, "vertices_after_simplification": vertex_count,
-                      "site_data_bytes": args.output.stat().st_size, "correlation": payload["correlation"]}, ensure_ascii=True))
+                      "site_data_bytes": args.output.stat().st_size}, ensure_ascii=True))
 
 
 if __name__ == "__main__":
     main()
+

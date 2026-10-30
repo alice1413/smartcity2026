@@ -176,17 +176,16 @@
   }
 
   function updateHousingSearchForm(){
-    const controls=document.getElementById('finderControls'),mode=controls.dataset.mode,type=document.getElementById('leaseType').value,isLease=mode==='lease';
-    const leaseTypeField=document.getElementById('leaseTypeField'),saleBudgetField=document.getElementById('saleBudgetField'),depositBudgetField=document.getElementById('depositBudgetField'),rentBudgetField=document.getElementById('rentBudgetField');
-    leaseTypeField.hidden=!isLease;saleBudgetField.hidden=isLease;depositBudgetField.hidden=!isLease;rentBudgetField.hidden=!isLease||type!=='monthly';
-    controls.dataset.leaseType=type;
+    const buy=document.getElementById('buyFields'),lease=document.getElementById('leaseFields'),isLease=lease.dataset.mode==='active',type=document.getElementById('leaseType').value;
+    buy.style.display=isLease?'none':'grid';lease.style.display=isLease?'grid':'none';lease.dataset.leaseType=type;
+    document.getElementById('rentBudgetField').style.display=type==='monthly'?'grid':'none';
     document.getElementById('depositBudgetTitle').textContent=type==='monthly'?'월세 보증금 상한':'전세 보증금 상한';
     const buyButton=document.getElementById('buyModeButton'),leaseButton=document.getElementById('leaseModeButton');
     buyButton.classList.toggle('active',!isLease);buyButton.setAttribute('aria-selected',String(!isLease));
     leaseButton.classList.toggle('active',isLease);leaseButton.setAttribute('aria-selected',String(isLease));
   }
-  function renderHousingSearch(){
-    const controls=document.getElementById('finderControls'),mode=controls.dataset.mode,leaseType=document.getElementById('leaseType').value,type=mode==='buy'?'sale':leaseType,area=Number(document.getElementById('areaInput').value),result=document.getElementById('housingSearchResults');
+  function renderHousingSearch(mode){
+    const lease=mode==='lease',type=lease?document.getElementById('leaseType').value:'sale',area=Number(document.getElementById(lease?'leaseAreaInput':'buyAreaInput').value),result=document.getElementById('housingSearchResults');
     if(!Number.isFinite(area)||area<10||area>250){result.innerHTML='<div class="finder-message">희망 면적을 10–250㎡ 사이로 입력해 주세요.</div>';return}
     const monthly=type==='monthly',budget=Number(document.getElementById('singleBudget').value),depositBudget=Number(document.getElementById('depositBudget').value),rentBudget=Number(document.getElementById('rentBudget').value);
     if(type==='sale'&&(!Number.isFinite(budget)||budget<=0)||type==='jeonse'&&(!Number.isFinite(depositBudget)||depositBudget<=0)||monthly&&(!Number.isFinite(depositBudget)||!Number.isFinite(rentBudget)||depositBudget<=0||rentBudget<=0)){result.innerHTML='<div class="finder-message">예산을 모두 0보다 큰 값으로 입력해 주세요.</div>';return}
@@ -213,10 +212,11 @@
   }
   function refreshHousing(){renderSummary();renderScatter();renderRanking();renderInsights()}
   document.getElementById('housingMetric').addEventListener('change',refreshHousing);
-  document.getElementById('buyModeButton').addEventListener('click',()=>{document.getElementById('finderControls').dataset.mode='buy';updateHousingSearchForm()});
-  document.getElementById('leaseModeButton').addEventListener('click',()=>{document.getElementById('finderControls').dataset.mode='lease';updateHousingSearchForm()});
+  document.getElementById('buyModeButton').addEventListener('click',()=>{document.getElementById('leaseFields').dataset.mode='inactive';updateHousingSearchForm()});
+  document.getElementById('leaseModeButton').addEventListener('click',()=>{document.getElementById('leaseFields').dataset.mode='active';updateHousingSearchForm()});
   document.getElementById('leaseType').addEventListener('change',updateHousingSearchForm);
-  document.getElementById('housingSearchButton').addEventListener('click',renderHousingSearch);
+  document.getElementById('buySearchButton').addEventListener('click',()=>renderHousingSearch('buy'));
+  document.getElementById('leaseSearchButton').addEventListener('click',()=>renderHousingSearch('lease'));
   updateHousingSearchForm();
   renderSummary();drawMap();renderScatter();renderRanking();renderInsights();
 })();

@@ -9,7 +9,7 @@
     monthlyRentMedian:{label:'월세 임대료 중위값',unit:'만원/㎡',digits:2,count:'monthlyCount'}
   };
   const mapMetric={label:'강남 도착 평균 이동시간',unit:'분',digits:1};
-  const candidates=districts.filter(d=>d.name!=='강남구');
+  const externalDistricts=districts.filter(d=>d.name!=='강남구');
   const pointByName=Object.fromEntries(districts.map(d=>[d.name,d]));
   const fmt=(n,d=0)=>Number.isFinite(Number(n))?Number(n).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d}):'자료 없음';
   const finite=(n)=>Number.isFinite(Number(n));
@@ -62,7 +62,7 @@
     marker.setAttribute('id','flow-arrow');marker.setAttribute('markerWidth','7');marker.setAttribute('markerHeight','7');
     marker.setAttribute('refX','6');marker.setAttribute('refY','3.5');marker.setAttribute('orient','auto');marker.setAttribute('markerUnits','userSpaceOnUse');
     const arrow=document.createElementNS(svgNS,'path');arrow.setAttribute('d','M0,0 L7,3.5 L0,7 Z');arrow.setAttribute('fill','#c65b2d');marker.append(arrow);defs.append(marker);map.append(defs);
-    const flows=candidates.filter(d=>Number(d.metrics.commuteFlow)>0);
+    const flows=externalDistricts.filter(d=>Number(d.metrics.commuteFlow)>0);
     const max=Math.max(...flows.map(d=>Number(d.metrics.commuteFlow)),1);
     flows.forEach((d,i)=>{
       const [x1,y1]=centers[d.name],[x2,y2]=centers['강남구'];
@@ -110,18 +110,24 @@
   }
 
   function median(values){const v=values.filter(Number.isFinite).slice().sort((a,b)=>a-b);if(!v.length)return NaN;const m=Math.floor(v.length/2);return v.length%2?v[m]:(v[m-1]+v[m])/2}
-  function renderSummary(){
-    const metric=document.getElementById('housingMetric').value,meta=housingMetrics[metric];
-    const fastest=sorted(candidates,'commuteMinutes')[0],cheapest=sorted(candidates,metric)[0];
-    const medianTime=median(candidates.map(d=>Number(d.metrics.commuteMinutes))),medianCost=median(candidates.map(d=>Number(d.metrics[metric])));
-    const lowLow=candidates.filter(d=>Number(d.metrics.commuteMinutes)<=medianTime&&Number(d.metrics[metric])<=medianCost);
-    document.getElementById('summary').innerHTML=`<div class="stat"><small>평균 이동시간이 가장 짧은 구</small><strong>${fastest.name} · ${fmt(fastest.metrics.commuteMinutes,1)}분</strong><span>강남구 제외 · 구별 공개값 가중 평균</span></div><div class="stat"><small>${meta.label}이 가장 낮은 구</small><strong>${cheapest.name} · ${fmt(cheapest.metrics[metric],meta.digits)}만원</strong><span>${fmt(cheapest.metrics[meta.count])}건 · ㎡당</span></div><div class="stat"><small>중앙값보다 시간·비용이 낮은 구</small><strong>${lowLow.length}개 자치구</strong><span>${lowLow.map(d=>d.name).join(' · ')||'해당 없음'} · ${meta.label} 기준</span></div>`;
+  function splitByTravelTime(){
+    const ordered=sorted(externalDistricts,'commuteMinutes');
+    const half=Math.floor(ordered.length/2);
+    return [ordered.slice(0,half),ordered.slice(half)];
   }
-
+  function renderSummary(){
+    const flowLeader=sorted(externalDistricts,'commuteFlow','desc')[0];
+    const [shortTimeGroup,longTimeGroup]=splitByTravelTime();
+    const shortSale=median(shortTimeGroup.map(d=>Number(d.metrics.saleMedian)));
+    const longSale=median(longTimeGroup.map(d=>Number(d.metrics.saleMedian)));
+    const shortMinutes=median(shortTimeGroup.map(d=>Number(d.metrics.commuteMinutes)));
+    const premium=(shortSale/longSale-1)*100;
+    document.getElementById('summary').innerHTML=`<div class="stat"><small>강남 도착 공개 이동값이 가장 큰 출발 구</small><strong>${flowLeader.name}</strong><span>구별 공개값 합계 ${fmt(flowLeader.metrics.commuteFlow)}</span></div><div class="stat"><small>이동시간 짧은 절반의 매매 중위값 중앙값</small><strong>${fmt(shortSale)}만원/㎡</strong><span>${shortTimeGroup.length}개 구 · 시간 중앙값 ${fmt(shortMinutes,1)}분</span></div><div class="stat"><small>짧은 이동시간 구의 매매 중위값 차이</small><strong>+${fmt(premium,0)}%</strong><span>짧은 쪽 ${fmt(shortSale)}만원/㎡ · 긴 쪽 ${fmt(longSale)}만원/㎡</span></div>`;
+  }
   function renderScatter(){
     const svg=document.getElementById('scatter'),W=540,H=300,L=58,R=16,T=18,B=42;
     const metric=document.getElementById('housingMetric').value,meta=housingMetrics[metric];
-    const rows=candidates.filter(d=>finite(d.metrics[metric])&&finite(d.metrics.commuteMinutes));
+    const rows=externalDistricts.filter(d=>finite(d.metrics[metric])&&finite(d.metrics.commuteMinutes));
     const xs=rows.map(d=>Number(d.metrics[metric])),ys=rows.map(d=>Number(d.metrics.commuteMinutes));
     const xStep=metric==='monthlyRentMedian'?.5:500;
     const x0=Math.floor(Math.min(...xs)/xStep)*xStep,x1=Math.ceil(Math.max(...xs)/xStep)*xStep;
@@ -137,25 +143,24 @@
     line(svg,X(xMed),T,X(xMed),H-B,'median-line');line(svg,L,Y(yMed),W-R,Y(yMed),'median-line');
     text(svg,(L+W-R)/2,H-1,`${meta.label} (${meta.unit})`,'tick','middle');
     const yLabel=text(svg,12,(T+H-B)/2,'강남 도착 평균 이동시간 (분)','tick','middle');yLabel.setAttribute('transform',`rotate(-90 12 ${(T+H-B)/2})`);
-    text(svg,L+6,H-B-8,'낮은 비용 · 짧은 시간','point-label');
+    text(svg,W-R-150,H-B-8,'짧은 시간 · 높은 비용','point-label');
     const maxFlow=Math.max(...rows.map(d=>Number(d.metrics.commuteFlow)),1);
     rows.forEach(d=>{
-      const m=d.metrics,c=document.createElementNS(svgNS,'circle'),lowLow=Number(m[metric])<=xMed&&Number(m.commuteMinutes)<=yMed;
+      const m=d.metrics,c=document.createElementNS(svgNS,'circle'),shortTimeHighCost=Number(m[metric])>xMed&&Number(m.commuteMinutes)<=yMed;
       const radius=3+5*Math.sqrt(Number(m.commuteFlow)/maxFlow);
       c.setAttribute('cx',X(Number(m[metric])));c.setAttribute('cy',Y(Number(m.commuteMinutes)));c.setAttribute('r',radius);
-      c.setAttribute('class','dot');c.style.fill=lowLow?'#315d49':'#d28b60';c.setAttribute('tabindex','0');c.setAttribute('role','button');
+      c.setAttribute('class','dot');c.style.fill=shortTimeHighCost?'#c65b2d':'#679575';c.setAttribute('tabindex','0');c.setAttribute('role','button');
       const detail=`${d.name} · ${meta.label} ${fmt(m[metric],meta.digits)} ${meta.unit} · 평균 이동 ${fmt(m.commuteMinutes,1)}분 · 공개값 ${fmt(m.commuteFlow)}`;
       c.setAttribute('aria-label',detail);c.addEventListener('pointermove',e=>showTip(e,detail));c.addEventListener('pointerleave',hideTip);
       c.addEventListener('click',()=>select(d.name));c.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(d.name)}});svg.append(c);
-      if(lowLow||['송파구','관악구','서초구'].includes(d.name))text(svg,X(Number(m[metric]))+7,Y(Number(m.commuteMinutes))-6,d.name,'point-label');
+      if(shortTimeHighCost||['송파구','관악구','서초구'].includes(d.name))text(svg,X(Number(m[metric]))+7,Y(Number(m.commuteMinutes))-6,d.name,'point-label');
     });
-    const qualifying=rows.filter(d=>Number(d.metrics[metric])<=xMed&&Number(d.metrics.commuteMinutes)<=yMed);
-    document.getElementById('scatter-note').textContent=`24개 후보 구의 중앙값: ${meta.label} ${fmt(xMed,meta.digits)} ${meta.unit}, 평균 이동 ${fmt(yMed,1)}분. 두 값 이하인 구: ${qualifying.map(d=>d.name).join(', ')||'없음'}. 점 크기는 공개 이동값 합계이며 실제 사람 수가 아닙니다.`;
+    document.getElementById('scatter-note').textContent=`외부 24개 구의 중앙값: ${meta.label} ${fmt(xMed,meta.digits)} ${meta.unit}, 평균 이동 ${fmt(yMed,1)}분. 주황색 점은 시간 중앙값 이하이면서 주거비 중앙값보다 높은 구입니다. 점 크기는 공개 이동값 합계이며 고유 인원 수가 아닙니다.`;
   }
 
   function renderRanking(){
     const svg=document.getElementById('ranking'),metric=document.getElementById('housingMetric').value,meta=housingMetrics[metric];
-    const items=sorted(candidates,'commuteMinutes').slice(0,7),min=Number(items[0].metrics.commuteMinutes),max=Number(items[items.length-1].metrics.commuteMinutes);
+    const items=sorted(externalDistricts,'commuteMinutes').slice(0,7),min=Number(items[0].metrics.commuteMinutes),max=Number(items[items.length-1].metrics.commuteMinutes);
     svg.replaceChildren();
     items.forEach((d,i)=>{
       const y=18+i*36,m=d.metrics;text(svg,0,y+4,String(i+1).padStart(2,'0'),'tick');text(svg,25,y+4,d.name,'tick');
@@ -168,13 +173,14 @@
 
   function renderInsights(){
     const metric=document.getElementById('housingMetric').value,meta=housingMetrics[metric];
-    const flowTop=sorted(candidates,'commuteFlow','desc').slice(0,3),fast=sorted(candidates,'commuteMinutes').slice(0,3);
-    const t=median(candidates.map(d=>Number(d.metrics.commuteMinutes))),c=median(candidates.map(d=>Number(d.metrics[metric])));
-    const lowLow=candidates.filter(d=>Number(d.metrics.commuteMinutes)<=t&&Number(d.metrics[metric])<=c);
-    document.getElementById('insight-flow').textContent=`강남구를 제외하면 강남 도착 공개값 합계가 큰 출발 구는 ${flowTop.map(d=>d.name).join('·')} 순입니다. 평균 이동시간이 짧은 세 구는 ${fast.map(d=>`${d.name}(${fmt(d.metrics.commuteMinutes,1)}분)`).join(', ')}입니다. 흐름 규모와 이동시간 순위는 서로 다른 정보를 보여줍니다.`;
-    document.getElementById('insight-price').textContent=`선택한 ${meta.label} 기준으로 주거비와 평균 이동시간이 모두 24개 구 중앙값 이하인 곳은 ${lowLow.map(d=>d.name).join(', ')||'없습니다'}. 이는 상대 비교상 부담이 낮아 보이는 후보를 찾은 것이며 실제 노동자의 거주 선택을 뜻하지 않습니다.`;
+    const flowTop=sorted(externalDistricts,'commuteFlow','desc').slice(0,3);
+    const [shortTimeGroup,longTimeGroup]=splitByTravelTime();
+    const shortCost=median(shortTimeGroup.map(d=>Number(d.metrics[metric])));
+    const longCost=median(longTimeGroup.map(d=>Number(d.metrics[metric])));
+    const premium=(shortCost/longCost-1)*100;
+    document.getElementById('insight-flow').textContent=`강남구를 제외한 외부 구에서는 ${flowTop.map(d=>`${d.name}(${fmt(d.metrics.commuteFlow)})`).join(', ')} 순으로 공개 이동값 합계가 큽니다. 이 값은 2025년 월·요일·시간대 공개값의 합이며 고유 인원 수나 연간 통행량이 아닙니다.`;
+    document.getElementById('insight-price').textContent=`평균 이동시간이 짧은 ${shortTimeGroup.length}개 구의 ${meta.label} 중앙값은 ${fmt(shortCost,meta.digits)} ${meta.unit}, 긴 ${longTimeGroup.length}개 구는 ${fmt(longCost,meta.digits)} ${meta.unit}입니다. 짧은 이동시간 그룹이 약 ${fmt(premium,0)}% 높게 나타납니다. 각 그룹에서 구별 거래 중위값을 동일하게 취급한 단순 비교이며, 인과관계나 개인의 주거 선택을 증명하지 않습니다.`;
   }
-
   function updateHousingSearchForm(){
     const buy=document.getElementById('buyFields'),lease=document.getElementById('leaseFields'),isLease=lease.dataset.mode==='active',type=document.getElementById('leaseType').value;
     buy.style.display=isLease?'none':'grid';lease.style.display=isLease?'grid':'none';lease.dataset.leaseType=type;
@@ -190,7 +196,7 @@
     const monthly=type==='monthly',budget=Number(document.getElementById('singleBudget').value),depositBudget=Number(document.getElementById('depositBudget').value),rentBudget=Number(document.getElementById('rentBudget').value);
     if(type==='sale'&&(!Number.isFinite(budget)||budget<=0)||type==='jeonse'&&(!Number.isFinite(depositBudget)||depositBudget<=0)||monthly&&(!Number.isFinite(depositBudget)||!Number.isFinite(rentBudget)||depositBudget<=0||rentBudget<=0)){result.innerHTML='<div class="finder-message">예산을 모두 0보다 큰 값으로 입력해 주세요.</div>';return}
     const valueKey=type==='sale'?'saleMedian':'jeonseMedian',rows=[];
-    candidates.forEach(d=>{
+    externalDistricts.forEach(d=>{
       const m=d.metrics,minutes=Number(m.commuteMinutes);
       if(!Number.isFinite(minutes))return;
       if(monthly){
@@ -206,7 +212,7 @@
     const criteria=monthly?`보증금 ${fmt(depositBudget,1)}억원 이하 · 월 임대료 ${fmt(rentBudget,0)}만원 이하`:`${typeLabel} 예산 ${fmt(type==='sale'?budget:depositBudget,1)}억원 이하`;
     const summary=`${area}㎡ 아파트 · ${criteria} 기준으로 ${rows.length}개 구가 조건에 들어옵니다. 평균 이동시간이 짧은 순으로 표시합니다.`;
     if(!rows.length){result.innerHTML=`<div class="finder-message">${summary} 예산이나 면적을 조정해 다시 찾아보세요.</div>`;return}
-    const body=rows.map(r=>`<tr><td>${r.name}</td><td>${monthly?`보증금 약 ${fmt(r.estimatedDeposit,1)}억원 · 월세 약 ${fmt(r.estimatedRent,1)}만원`:`약 ${fmt(r.estimatedCost,1)}억원`}</td><td>${fmt(r.minutes,1)}분</td><td><button class="map-button" type="button" data-district="${r.name}">지도 보기</button></td></tr>`).join('');
+    const body=rows.map(r=>`<tr><td>${r.name}</td><td>${monthly?`보증금 약 ${fmt(r.estimatedDeposit,1)}억원 · 월세 약 ${fmt(r.estimatedRent,1)}만원`:`약 ${fmt(r.estimatedCost,1)}억원`}</td><td>${fmt(r.minutes,1)}분</td><td><button class="map-button" type="button" data-district="${r.name}">지도에서 확인</button></td></tr>`).join('');
     result.innerHTML=`<div class="finder-message">${summary}</div><div class="finder-table-wrap"><table class="finder-table"><thead><tr><th>자치구</th><th>추정 주거비</th><th>강남 도착 평균 이동시간</th><th>지도</th></tr></thead><tbody>${body}</tbody></table></div>`;
     result.querySelectorAll('[data-district]').forEach(button=>button.addEventListener('click',()=>select(button.dataset.district)));
   }
